@@ -424,7 +424,13 @@ function syncPanelStatus(){const el=document.getElementById('syncStat');if(!el)r
   const code=syncCode(),last=+get(K_LAST,'0');
   el.textContent=!SYNC_ON?'Indisponível.':!code?'Desligada neste aparelho.':syncErr?'Sem conexão: as respostas ficam salvas aqui e sobem quando voltar.':(isRO()?'Acompanhando em tempo real (somente leitura). ':'Ligada. ')+(last?'Última sincronização às '+new Date(last).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.':'Sincronizando…')}
 function syncPanel(){
-  const root=app.querySelector('p.end');if(!root||!SYNC_ON||!syncCode())return;
+  const root=app.querySelector('p.end');if(!root||!SYNC_ON)return;
+  if(!syncCode()){
+    root.insertAdjacentHTML('beforebegin','<section class="panel" id="syncBox"><h3>Sincronização</h3><p style="margin:0 0 10px;color:var(--mut)">Para continuar de onde parou em outro aparelho, cole aqui o código de sincronização.</p><input id="syncIn" class="code" style="width:100%;min-height:0;height:44px;padding:0 12px" placeholder="Código de sincronização" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="row-btns"><button class="btn" type="button" id="syncOn">Ligar sincronização</button></div></section>');
+    document.getElementById('syncOn').onclick=()=>{const c=(document.getElementById('syncIn').value||'').trim();
+      if(!/^[A-Za-z0-9_-]{16,64}$/.test(c)){toast('Código inválido. Confira se copiou inteiro.');return}
+      set(K_CODE,c);set(K_REV,'0');set(K_RO,'');set(K_DIRTY,'1');startSync();toast('Sincronização ligada.');renderHome()};
+    return}
   root.insertAdjacentHTML('beforebegin',`<section class="panel" id="syncBox"><h3>Sincronização</h3><p id="syncStat" style="margin:0 0 10px;color:var(--mut)"></p><div class="row-btns">${isRO()?'':'<button class="btn" type="button" id="syncLink">⧉ Copiar link para acompanhar</button>'}<button class="btn" type="button" id="syncOff">Desligar neste aparelho</button></div></section>`);
   const l=document.getElementById('syncLink');
   if(l)l.onclick=()=>{const u=location.origin+location.pathname+'?c='+syncCode()+'&ver=1';try{navigator.clipboard.writeText(u).then(()=>toast('Link copiado. Quem abrir vê as respostas, sem poder alterar.'),()=>prompt('Copie o link:',u))}catch(e){prompt('Copie o link:',u)}};
@@ -432,7 +438,9 @@ function syncPanel(){
   syncPanelStatus()}
 const _rh=renderHome;renderHome=function(){_rh();syncPanel()};
 syncAdopt();
-if(SYNC_ON&&syncCode()){syncNow();setInterval(()=>{if(!document.hidden)syncNow()},15000);addEventListener('online',syncNow);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow()})}
+let syncStarted=false;
+function startSync(){if(syncStarted||!SYNC_ON||!syncCode())return;syncStarted=true;syncNow();setInterval(()=>{if(!document.hidden)syncNow()},15000);addEventListener('online',syncNow);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow()})}
+startSync();
 
 function route(){const id=location.hash.replace(/^#\/?/,'');if(id){filtro='todas';renderExam(id)}else renderHome();window.scrollTo(0,0)}
 $('#home').onclick=()=>{location.hash=''};
