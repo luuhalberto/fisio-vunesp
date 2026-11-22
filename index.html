@@ -43,6 +43,10 @@ html{-webkit-text-size-adjust:100%;scroll-padding-top:128px}
 body{margin:0;background:var(--bg);color:var(--tx);font:16.5px/1.6 var(--f-body);font-feature-settings:"cv11","ss01";padding-bottom:110px;-webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
 h1,h2,.card .org{font-family:var(--f-disp);text-wrap:balance}
+.toast{display:flex;align-items:center;justify-content:space-between;width:max-content;max-width:calc(100vw - 32px)}.toast[hidden]{display:none}
+.toast .tact{margin-left:12px;background:none;border:0;color:inherit;font-weight:800;padding:4px 6px;text-decoration:underline;text-underline-offset:3px}
+.lxbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:12px 0;padding:12px 14px;border-radius:14px;background:var(--warnbg);color:var(--tx);border:1px solid var(--bd);font-size:14.5px}
+.lxbar .lxb{display:flex;gap:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(70px + env(safe-area-inset-top,0px));z-index:40;background:var(--tx);color:var(--bg);font-size:14px;font-weight:600;border-radius:12px;padding:9px 14px;box-shadow:var(--sh2)}
 textarea.code{width:100%;min-height:70px;margin-top:10px;font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--tx);background:var(--surface2);border:1px solid var(--bd);border-radius:10px;padding:8px}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
@@ -215,7 +219,16 @@ const L='ABCDE';
 let filtro='todas',anoSel='todos';
 const get=(k,d)=>{try{return localStorage.getItem(k)||d}catch(e){return d}};
 const set=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-function toast(msg){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2600)}
+function toast(msg,act){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;
+  if(act){const b=document.createElement('button');b.type='button';b.className='tact';b.textContent=act.label;b.onclick=()=>{t.hidden=true;clearTimeout(toast.t);act.fn()};t.appendChild(b)}
+  t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,act?10000:2600)}
+/* lixeira: guarda as respostas antes do "Recomeçar" para poder desfazer (inclusive depois de fechar o app) */
+const LX='fisio-vunesp-lixeira-v1',LX_DIAS=30;
+const lxAll=()=>{try{return JSON.parse(localStorage.getItem(LX)||'{}')||{}}catch(e){return {}}};
+const lxSet=o=>{try{localStorage.setItem(LX,JSON.stringify(o))}catch(e){}};
+const lxGet=id=>{const b=lxAll()[id];return b&&Date.now()-b.t<LX_DIAS*864e5&&Object.keys(b.d||{}).length?b:null};
+const lxDel=id=>{const o=lxAll();delete o[id];lxSet(o)};
+function restaurar(id){const b=lxGet(id);if(!b)return;S[id]=Object.assign({},b.d,st(id));save();lxDel(id);toast('Respostas restauradas.');renderExam(id)}
 
 /* tema */
 const tm=get('fisio-tema','');if(tm)document.documentElement.dataset.theme=tm;
@@ -325,6 +338,8 @@ function renderExam(id){
     <button class="ib" type="button" id="btnMap" aria-label="Mapa de questões" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
   </div>
   <div class="navmap" id="navmap">${mapHTML(e)}</div>`;
+  const lx=lxGet(e.id);
+  if(lx){const d=new Date(lx.t),n=Object.keys(lx.d).length;out+=`<div class="lxbar" role="status"><span>${n} ${plural(n,'resposta apagada','respostas apagadas')} em ${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}.</span><span class="lxb"><button type="button" class="btn" id="lxRest">Restaurar</button><button type="button" class="btn ghost" id="lxDesc">Descartar</button></span></div>`}
   let pend='',shown=0;
   e.b.forEach(b=>{
     if(b.t==='h'){out+=`<h3 class="sec">${b.x}</h3>`;pend='';return}
@@ -337,6 +352,7 @@ function renderExam(id){
   app.innerHTML=out;
   app.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filtro=b.dataset.f;renderExam(id);window.scrollTo(0,0)});
   $('#voltar').onclick=()=>{location.hash=''};
+  if(lx){$('#lxRest').onclick=()=>restaurar(id);$('#lxDesc').onclick=ev=>{const b=ev.currentTarget;if(!b.dataset.arm){b.dataset.arm='1';b.textContent='Toque de novo';return}lxDel(id);renderExam(id)}}
   $('#btnMap').onclick=ev=>{const m=$('#navmap');const o=m.classList.toggle('open');ev.currentTarget.setAttribute('aria-expanded',o)};
   $('#navmap').onclick=ev=>{const g=ev.target.closest('[data-go]');if(!g)return;let el=document.getElementById(`q-${id}-${g.dataset.go}`);
     if(!el){filtro='todas';renderExam(id);el=document.getElementById(`q-${id}-${g.dataset.go}`)}
@@ -356,7 +372,8 @@ function foot(e){
   const cc={todas:s.t,nao:s.t-s.r,erradas:s.w,certas:s.k};document.querySelectorAll('[data-c]').forEach(x=>x.textContent=cc[x.dataset.c]);
   $('#score').innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><span><b>${s.k}</b> ${plural(s.k,'acerto','acertos')} em <b>${s.r}</b> · ${s.r}/${s.t}</span><span class="pc">${s.r?pct(s.k,s.r)+'%':'–'}</span></div><span class="bar"><i class="k" style="width:${pct(s.k,s.t)}%"></i><i class="w" style="width:${pct(s.w,s.t)}%"></i></span>`;
   const rb=$('#btnReset');rb.innerHTML='↺ <span>Recomeçar</span>';rb.dataset.arm='';
-  rb.onclick=()=>{if(rb.dataset.arm){S[e.id]={};save();toast('Respostas desta prova apagadas.');renderExam(e.id);return}
+  rb.onclick=()=>{if(rb.dataset.arm){const cur=st(e.id);if(Object.keys(cur).length){const o=lxAll();o[e.id]={t:Date.now(),d:JSON.parse(JSON.stringify(cur))};lxSet(o)}
+      S[e.id]={};save();renderExam(e.id);if(lxGet(e.id))toast('Respostas desta prova apagadas.',{label:'Desfazer',fn:()=>restaurar(e.id)});else toast('Nada para apagar.');return}
     rb.dataset.arm='1';rb.innerHTML='Toque de novo para apagar';clearTimeout(rb.t);rb.t=setTimeout(()=>{rb.dataset.arm='';rb.innerHTML='↺ <span>Recomeçar</span>'},3500)};
 }
 

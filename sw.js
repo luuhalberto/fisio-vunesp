@@ -1,5 +1,5 @@
 // Cache offline do app. Versão muda a cada build para atualizar o conteúdo.
-const CACHE='fisio-vunesp-b8e726c8dd';
+const CACHE='fisio-vunesp-d39a14dc64';
 const CORE=['./','./index.html','./manifest.webmanifest','./apple-touch-icon.png','./icon-192.png','./icon-512.png','./icon-maskable-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
