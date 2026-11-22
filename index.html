@@ -211,7 +211,7 @@ const EXAMS=[{"id":"ju","ano":2026,"org":"Prefeitura de Jundiaí/SP","cargo":"Fi
 const KEY='fisio-vunesp-progresso-v1';
 let S={};
 try{S=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){S={}}
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S));const s=document.getElementById('saved');s.classList.add('on');clearTimeout(save.t);save.t=setTimeout(()=>s.classList.remove('on'),1400)}catch(e){}};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S));syncDirty();const s=document.getElementById('saved');s.classList.add('on');clearTimeout(save.t);save.t=setTimeout(()=>s.classList.remove('on'),1400)}catch(e){}};
 const st=id=>(S[id]=S[id]||{});
 const $=s=>document.querySelector(s);
 const app=$('#app');
@@ -376,6 +376,63 @@ function foot(e){
       S[e.id]={};save();renderExam(e.id);if(lxGet(e.id))toast('Respostas desta prova apagadas.',{label:'Desfazer',fn:()=>restaurar(e.id)});else toast('Nada para apagar.');return}
     rb.dataset.arm='1';rb.innerHTML='Toque de novo para apagar';clearTimeout(rb.t);rb.t=setTimeout(()=>{rb.dataset.arm='';rb.innerHTML='↺ <span>Recomeçar</span>'},3500)};
 }
+
+/* ---------- sincronização (Supabase) ---------- */
+const SB_URL='https://azpdfprvlrnxjzvqqvcp.supabase.co',SB_KEY='sb_publishable_j89gy_Q70J8b_ieN6-qlaQ_2l1AFCAh';
+const SYNC_ON=!!(SB_URL&&SB_KEY);
+const K_CODE='fisio-sync-code',K_REV='fisio-sync-rev',K_DIRTY='fisio-sync-dirty',K_RO='fisio-sync-ro',K_LAST='fisio-sync-last';
+let syncBusy=false,syncErr=false,pushT=0;
+const syncCode=()=>get(K_CODE,'');
+const isRO=()=>get(K_RO,'')==='1';
+const rpc=(fn,body)=>fetch(SB_URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_KEY},body:JSON.stringify(body)}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+function mergeDocs(a,b){/* por questão, vale a resposta mais recente */
+  const o={};for(const src of [a,b])for(const ex in src||{}){o[ex]=o[ex]||{};for(const n in src[ex]||{}){const x=src[ex][n],y=o[ex][n];if(!y||(x&&(x.t||0)>=(y.t||0)))o[ex][n]=x}}return o}
+function syncDirty(){if(!SYNC_ON||!syncCode()||isRO())return;set(K_DIRTY,'1');clearTimeout(pushT);pushT=setTimeout(syncNow,1500)}
+function applyRemote(dados,rev){const changed=JSON.stringify(dados)!==JSON.stringify(S);S=dados||{};try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}set(K_REV,String(rev));return changed}
+function refreshView(changed){
+  if(!changed)return;
+  const id=location.hash.replace(/^#\/?/,'');
+  if(!id){renderHome();return}
+  if(isRO()){const y=window.scrollY;renderExam(id);window.scrollTo(0,y)}
+  else toast('Chegaram respostas de outro aparelho.',{label:'Atualizar',fn:()=>{const y=window.scrollY;renderExam(id);window.scrollTo(0,y)}})}
+async function syncNow(){
+  const code=syncCode();if(!SYNC_ON||!code||syncBusy)return;syncBusy=true;
+  try{
+    let rev=+get(K_REV,'0'),dirty=get(K_DIRTY,'')==='1',changed=false;
+    const cur=await rpc('fisio_get',{p_code:code});
+    if(cur&&cur.rev>rev&&(!dirty||isRO())){changed=applyRemote(cur.dados,cur.rev);dirty=false;set(K_DIRTY,'');rev=cur.rev}
+    else if(cur&&cur.rev>rev&&dirty){S=mergeDocs(cur.dados,S);rev=cur.rev;set(K_REV,String(rev));changed=true}
+    if(dirty&&!isRO()){
+      const r=await rpc('fisio_put',{p_code:code,p_dados:S,p_base:rev});
+      if(r.ok){set(K_REV,String(r.rev));set(K_DIRTY,'')}
+      else{S=mergeDocs(r.dados,S);set(K_REV,String(r.rev));changed=true;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}syncDirty()}
+    }
+    try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    syncErr=false;set(K_LAST,String(Date.now()));refreshView(changed);
+  }catch(e){syncErr=true}
+  syncBusy=false;if(!location.hash)syncPanelStatus()}
+function syncAdopt(){/* ?c=CODIGO (aparelho dela) ou ?c=CODIGO&ver=1 (só acompanhar) */
+  try{const p=new URLSearchParams(location.search),c=(p.get('c')||'').trim();
+    if(!SYNC_ON||!/^[A-Za-z0-9_-]{16,64}$/.test(c))return;
+    if(c!==syncCode()){
+      set(K_CODE,c);set(K_REV,'0');
+      if(p.get('ver')==='1'){set(K_RO,'1');set(K_DIRTY,'');try{localStorage.setItem(KEY+'-antes-do-link',JSON.stringify(S))}catch(e){}S={};try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+      else{set(K_RO,'');set(K_DIRTY,'1')}
+    }
+    history.replaceState(null,'',location.pathname+location.hash)}catch(e){}}
+function syncPanelStatus(){const el=document.getElementById('syncStat');if(!el)return;
+  const code=syncCode(),last=+get(K_LAST,'0');
+  el.textContent=!SYNC_ON?'Indisponível.':!code?'Desligada neste aparelho.':syncErr?'Sem conexão: as respostas ficam salvas aqui e sobem quando voltar.':(isRO()?'Acompanhando em tempo real (somente leitura). ':'Ligada. ')+(last?'Última sincronização às '+new Date(last).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.':'Sincronizando…')}
+function syncPanel(){
+  const root=app.querySelector('p.end');if(!root||!SYNC_ON||!syncCode())return;
+  root.insertAdjacentHTML('beforebegin',`<section class="panel" id="syncBox"><h3>Sincronização</h3><p id="syncStat" style="margin:0 0 10px;color:var(--mut)"></p><div class="row-btns">${isRO()?'':'<button class="btn" type="button" id="syncLink">⧉ Copiar link para acompanhar</button>'}<button class="btn" type="button" id="syncOff">Desligar neste aparelho</button></div></section>`);
+  const l=document.getElementById('syncLink');
+  if(l)l.onclick=()=>{const u=location.origin+location.pathname+'?c='+syncCode()+'&ver=1';try{navigator.clipboard.writeText(u).then(()=>toast('Link copiado. Quem abrir vê as respostas, sem poder alterar.'),()=>prompt('Copie o link:',u))}catch(e){prompt('Copie o link:',u)}};
+  document.getElementById('syncOff').onclick=()=>{[K_CODE,K_REV,K_DIRTY,K_RO,K_LAST].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});toast('Sincronização desligada neste aparelho.');renderHome()};
+  syncPanelStatus()}
+const _rh=renderHome;renderHome=function(){_rh();syncPanel()};
+syncAdopt();
+if(SYNC_ON&&syncCode()){syncNow();setInterval(()=>{if(!document.hidden)syncNow()},15000);addEventListener('online',syncNow);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow()})}
 
 function route(){const id=location.hash.replace(/^#\/?/,'');if(id){filtro='todas';renderExam(id)}else renderHome();window.scrollTo(0,0)}
 $('#home').onclick=()=>{location.hash=''};
